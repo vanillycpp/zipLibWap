@@ -9,10 +9,10 @@ class ZipLibWrap
 {
 public:  
   ZipLibWrap(const std::string& file_name);
-  ZipLibWrap(void* data, int data_size);
+  ZipLibWrap(unsigned char* data, int data_size);
   ~ZipLibWrap();
 
-  bool saveToMem(void* out_data, int out_data_size);
+  bool saveToMem(std::vector<unsigned char>& out_data);
   bool saveToFile(const std::string& file_name);
 
   bool listFiles(std::vector<std::string>& out_res);
@@ -24,10 +24,10 @@ public:
 
 private:
   bool makeArchFromMem();
-  bool writeArchToMem();
+  //bool writeArchToMem(std::vector<unsigned char>& out_data);
 
-  bool loadDataFromFile(const std::string& file_name);
-  bool writeDataToFile(const std::string& file_name);
+  bool loadDataFromFile(const std::string& file_name, std::vector<unsigned char>& data);
+  bool writeDataToFile(const std::string& file_name, const std::vector<unsigned char>& data);
 
   void freeData();
 

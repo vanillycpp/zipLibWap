@@ -8,25 +8,43 @@
 #include "ZipLibWrap.h"
 
 ZipLibWrap::ZipLibWrap(const std::string& file_name)
-: za(NULL)
+: src(NULL)
+, za(NULL)
 , m_data(NULL)
+, m_data_size(0)
 {
-  loadDataFromFile(file_name);
-  makeArchFromMem();
+  std::vector<unsigned char> data;
+  loadDataFromFile(file_name, data);
+
+  if(data.size())
+  {
+    //m_data = new unsigned char[data.size()];
+    m_data = malloc(data.size());
+    memcpy(m_data, data.data(), data.size());
+    m_data_size = data.size();
+
+    makeArchFromMem();
+  }
+  else
+  {
+    m_last_error = "read arh file is empty"; 
+  }
 }
 
-ZipLibWrap::ZipLibWrap(void* data, int data_size)
-: za(NULL)
-, m_data(data)
-, m_data_size(data_size)
-
+ZipLibWrap::ZipLibWrap(unsigned char* data, int data_size)
+: src(NULL)
+, za(NULL)
 {
+  m_data = malloc(data_size);
+  memcpy(m_data, data, data_size);
+  m_data_size = data_size;
+
   makeArchFromMem();
 }
 
 ZipLibWrap::~ZipLibWrap()
 {
-  freeData();
+  freeData();  
 }
 
 bool ZipLibWrap::replaceFile(const std::string& file_name, void* data, int size)
@@ -46,7 +64,6 @@ bool ZipLibWrap::replaceFile(const std::string& file_name, void* data, int size)
   }
 
   zip_source_t *s; 
-  //const char buf[] = "teststring"; 
    
   if ((s=zip_source_buffer(za, data, size, 0)) == NULL || 
       zip_file_replace(za, file_index, s, ZIP_FL_ENC_UTF_8) < 0) 
@@ -81,39 +98,20 @@ bool ZipLibWrap::listFiles(std::vector<std::string>& out_res)
 
     if(ret_name != NULL)
     {
-      // char* buf = malloc(strlen(ret_name));
-      // strcpy(buf, ret_name);
-      // free(buf);
       out_res.push_back(ret_name);
-      //printf("%s\n", buf);
     }
   }
 
   return true;
 }
 
-bool ZipLibWrap::saveToMem(void* out_data, int out_data_size)
-{
-  if(out_data_size < getDataSize())
-  {
-    m_last_error = "out buffer less then data size";
-    return false;
-  }
-
-  if(writeArchToMem())
-  {
-    memcpy(out_data, m_data, m_data_size);
-    return true;
-  }
-
-  return false;
-}
-
 bool ZipLibWrap::saveToFile(const std::string& file_name)
 {
-  if(writeArchToMem())
+  std::vector<unsigned char> data;
+
+  if(saveToMem(data))
   {
-    if(writeDataToFile(file_name))
+    if(writeDataToFile(file_name, data))
     {
       return true;
     }    
@@ -151,8 +149,10 @@ bool ZipLibWrap::makeArchFromMem()
   return true;
 }
 
-bool ZipLibWrap::writeArchToMem()
+bool ZipLibWrap::saveToMem(std::vector<unsigned char>& out_data)
 {
+  void* buf = NULL;
+
   /* close archive */
   if (zip_close(za) < 0) {    
     m_last_error = "can't close zip archive handler";
@@ -161,13 +161,10 @@ bool ZipLibWrap::writeArchToMem()
 
   za = NULL;
 
-  freeData();
-
   /* copy new archive to buffer */
   if (zip_source_is_deleted(src)) 
   {
     /* new archive is empty, thus no data */
-    freeData();
     m_last_error = "new archive is empty, thus no data";
     return false;
   }
@@ -180,41 +177,44 @@ bool ZipLibWrap::writeArchToMem()
       return false;
     }
 
-    m_data_size = zst.size;
-
     if (zip_source_open(src) < 0) {
       m_last_error = "can't open source";
       return false;
     }
+   
+    buf = malloc(zst.size);    
 
-    if ((m_data = malloc(m_data_size)) == NULL) {
-      m_last_error = "malloc failed";
-      zip_source_close(src);
-      return false;
-    }
-
-    if ((zip_uint64_t)zip_source_read(src, m_data, m_data_size) < (zip_uint64_t)m_data_size) {
+    if ((zip_uint64_t)zip_source_read(src, buf, zst.size) < (zip_uint64_t)zst.size) {
         m_last_error = "can't read data from acrh source";
         zip_source_close(src);
-        freeData();
+        if(buf != NULL) free(buf);
+
         return false;
+    }
+
+    if(zst.size > 0)
+    {
+      out_data.resize(zst.size);
+      memcpy(out_data.data(), buf, zst.size);
     }
 
     zip_source_close(src);
   }
 
   /* we're done with src */
-  zip_source_free(src);
+  // какая то глюченая либа на каких-то архивах вылетает при очищении на каких-то нет (((
+  //zip_source_free(src);
+  if(src != NULL) free(src);
 
+  if(buf != NULL) free(buf);
+  
   return true;
 }
 
-bool ZipLibWrap::loadDataFromFile(const std::string& file_name)
+bool ZipLibWrap::loadDataFromFile(const std::string& file_name, std::vector<unsigned char>& data)
 {
   struct stat st;
-  FILE *fp;
-
-  freeData();
+  FILE *fp;  
 
   if (stat(file_name.c_str(), &st) < 0) 
   {
@@ -222,24 +222,16 @@ bool ZipLibWrap::loadDataFromFile(const std::string& file_name)
     return false;
   }
 
-  if ((m_data = malloc((size_t)st.st_size)) == NULL) 
-  {
-    m_last_error = "can't allocate data buffer";
-    return false;    
-  }
+  data.resize((size_t)st.st_size);
 
   if ((fp=fopen(file_name.c_str(), "rb")) == NULL) 
   {
-    freeData();
-
     m_last_error = "can't open archive file";
     return false;
   }
     
-  if (fread(m_data, 1, (size_t)st.st_size, fp) < (size_t)st.st_size) 
+  if (fread(data.data(), 1, (size_t)st.st_size, fp) < (size_t)st.st_size) 
   {
-    freeData();
-
     m_last_error = "can't read archive file";
     fclose(fp);
     return false;
@@ -247,29 +239,18 @@ bool ZipLibWrap::loadDataFromFile(const std::string& file_name)
 
   fclose(fp);
 
-  m_data_size = (size_t)st.st_size;
-
   return true;
 }
 
-bool ZipLibWrap::writeDataToFile(const std::string& file_name)
+bool ZipLibWrap::writeDataToFile(const std::string& file_name, const std::vector<unsigned char>& data)
 {
   FILE *fp;
 
-  if (m_data == NULL || m_data_size == 0)
+  if (data.size() == 0)
   {
     m_last_error = "no data to write in file";
     return false;
   }
-
-  // if (data == NULL) 
-  // {
-  //   if (remove(archive) < 0 && errno != ENOENT) {
-  //       fprintf(stderr, "can't remove %s: %s\n", archive, strerror(errno));
-  //       return -1;
-  //   }
-  //   return 0;
-  // }
 
   if ((fp = fopen(file_name.c_str(), "wb")) == NULL) 
   {
@@ -277,7 +258,7 @@ bool ZipLibWrap::writeDataToFile(const std::string& file_name)
     return false;
   }
 
-  if (fwrite(m_data, 1, m_data_size, fp) < (size_t)m_data_size) 
+  if (fwrite(data.data(), 1, data.size(), fp) < (size_t)data.size()) 
   {
     m_last_error = "can't write archive file";
     fclose(fp);
@@ -297,6 +278,7 @@ void ZipLibWrap::freeData()
 {
   if(m_data != NULL)
   {
+    //delete [] m_data;
     free(m_data);
     m_data = NULL;
     m_data_size = 0;

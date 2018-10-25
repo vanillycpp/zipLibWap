@@ -76,6 +76,61 @@ bool ZipLibWrap::replaceFile(const std::string& file_name, void* data, int size)
   return true;
 }
 
+bool ZipLibWrap::addFile(const std::string& file_name, void* data, int size){
+  if(!isValid())
+  {
+	m_last_error = "archive handle is not valid";
+	return false;
+  }
+
+  zip_int64_t file_index = zip_name_locate(za,file_name.c_str(),0);
+  if (file_index != -1){
+	  m_last_error = "file index already exists";
+	  return false;
+  }
+
+  zip_source_t *s;
+//  if ((s=zip_source_buffer(za,data,size,0)) == NULL ||
+//		  zip_file_add(za,file_name.c_str(),s,0)){
+//      zip_source_free(s);
+//      m_last_error = "can't create archive source";
+//      return false;
+//
+//  }
+
+  if ((s=zip_source_buffer(za,data,size,0)) == NULL){
+	m_last_error = "can't create archive source";
+	return false;
+  }
+
+  if (zip_file_add(za,file_name.c_str(),s,0) < 0){
+	m_last_error = "can't add file to archive";
+	zip_source_free(s);
+	return false;
+  }
+
+  return true;
+};
+
+bool ZipLibWrap::fileExists(const std::string file_name, bool &out_result){
+	if(!isValid())
+	{
+		m_last_error = "archive handle is not valid";
+		return false;
+	}
+
+	zip_int64_t file_index = zip_name_locate(za,file_name.c_str(),0);
+	if (file_index == -1){
+		//m_last_error = "file index already exists";
+		//return false;
+		out_result = false;
+	}else{
+		out_result = true;
+	}
+	return true;
+
+};
+
 bool ZipLibWrap::listFiles(std::vector<std::string>& out_res)
 {
   if(!isValid())

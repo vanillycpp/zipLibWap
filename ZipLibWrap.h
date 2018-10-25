@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 
-#include <zip.h>
+#include "zipLibInc/zip.h"
 
 class ZipLibWrap
 {
@@ -17,6 +17,9 @@ public:
 
   bool listFiles(std::vector<std::string>& out_res);
   bool replaceFile(const std::string& file_name, void* data, int size);
+  bool addFile(const std::string& file_name, void* data, int size);
+
+  bool fileExists(const std::string file_name, bool &out_result);
 
   bool isValid();
   int getDataSize();
